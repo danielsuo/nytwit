@@ -1,0 +1,21 @@
+name: nytwit
+channels:
+  - default
+  - conda-forge
+  - anaconda
+  - quantstack
+dependencies:
+  - numpy
+  - scipy
+  - jupyter
+  - ipython
+  - flake8
+  - matplotlib
+  - pandas
+  - scikit-learn
+  - requests
+  - click
+  - tqdm
+  - pip:
+    - python-twitter
+    - clickutil

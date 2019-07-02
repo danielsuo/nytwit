@@ -20,8 +20,6 @@ setup(name="nytwit",
           "requests",
           "tqdm",
           "python-twitter",
-          "TwitterSearch",
-          "nytimesarticle",
           "beautifulsoup4",
           "clickutil"
       ])

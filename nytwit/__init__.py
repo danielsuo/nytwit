@@ -1,67 +1,121 @@
+import os
+import sys
 import json
+import time
 import bs4
 import requests
-from TwitterSearch import *
+import random
+import twitter
+import urllib.parse
 
-nyt_key = ""
+from config import Config
+
 nyt_base = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
+twitter_base = "https://twitter.com/search?q="
 
-search = TwitterSearch(consumer_key="",
-                       consumer_secret="",
-                       access_token="",
-                       access_token_secret="")
+# api = twitter.Api(consumer_key=Config().get("TWITTER_CONSUMER_KEY"),
+# consumer_secret=Config().get("TWITTER_CONSUMER_SECRET"),
+# access_token_key=Config().get("TWITTER_ACCESS_TOKEN"),
+# access_token_secret=Config().get("TWITTER_ACCESS_TOKEN_SECRET"),
+# sleep_on_rate_limit=True,
+# tweet_mode="extended")
+
+# print(api.GetUserTimeline(screen_name="danielsuo"))
+
+# print(Config().get("TWITTER_ACCESS_TOKEN_SECRET"))
 
 # TODO: handle pagination
 # TODO: handle new queries with more recent dates
-results = requests.get(nyt_base, params={
-    "api-key": nyt_key, "fq": 'news_desk:("Opinion")', "begin_date": 20190101, "page": 0})
-results = json.loads(results.text)
+page = 0
+while True:
+    results = requests.get(nyt_base, params={
+        "api-key": Config().get("NYT_API_KEY"), "fq": 'news_desk:("OpEd" "Opinion" "Editorial")', "begin_date": 20190101, "page": page, "sort": "oldest"})
+    results = json.loads(results.text)
 
-for result in results["response"]["docs"]:
-    url = result["web_url"]
-    print(url)
+    if "response" not in results:
+        break
+    else:
+        page += 1
 
-    tso = TwitterSearchOrder()
-    tso.set_keywords([url])
+    for result in results["response"]["docs"]:
+        url = result["web_url"]
 
-    max_score = 0
-    best_tweet = None
-    for tweet in search.search_tweets_iterable(tso):
-        # if tweet["retweet_count"] == 171 and tweet["favorite_count"] == 0:
-            # print(tweet)
-        score = tweet["retweet_count"] + tweet["favorite_count"]
-        if "retweeted_status" in tweet:
-            print(score)
-            score += tweet["retweeted_status"]["retweet_count"] + tweet["retweeted_status"]["favorite_count"]
-            print(score)
-        if score > max_score:
-            max_score = score
-            best_tweet = tweet
-    if best_tweet is None:
-        best_tweet = tweet
+        name = os.path.basename(url).split(".")[0]
+        directory = "data/{}".format(name)
+        os.system("mkdir -p {}".format(directory))
 
-    print(best_tweet["retweet_count"], best_tweet["favorite_count"])
-    print('@%s tweeted: %s' %
-          (best_tweet['user']['screen_name'], best_tweet['text']))
+        print(url)
+
+        with open("{}/nyt.json".format(directory), "w") as f:
+            json.dump(result, f)
+
+        max_score = 0
+        best_tweet = None
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Cafari/537.36'
+        }
+        twitter_url = "{}{}".format(twitter_base, url)
+        response = requests.get(twitter_url, headers=headers)
+        twitter_html = response.content
+
+        with open("{}/twitter.html".format(directory), "w") as f:
+            f.write(twitter_html.decode("utf-8"))
+
+        twitter_soup = bs4.BeautifulSoup(twitter_html, "html.parser")
+        tweets = twitter_soup.find(id="stream-items-id")
+        tweets = bs4.BeautifulSoup(str(tweets), "html.parser")
+        tweets = tweets.find_all(
+            "li", class_="js-stream-item stream-item stream-item")
+
+        reply_count = 0
+        retweet_count = 0
+        favorite_count = 0
+
+        for tweet in tweets:
+            soup = bs4.BeautifulSoup(str(tweet), "html.parser")
+
+            results = soup.find_all(
+                "div", class_="ProfileTweet-action ProfileTweet-action--reply")
+            subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
+            results = subsoup.find_all(
+                "span", class_="ProfileTweet-actionCountForPresentation")
+            count = results[0].encode_contents().decode("ascii")
+            count = 0 if count.strip() == "" else int(count)
+            reply_count += count
+
+            results = soup.find_all(
+                "div", class_="ProfileTweet-action ProfileTweet-action--retweet js-toggleState js-toggleRt")
+            subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
+            results = subsoup.find_all(
+                "span", class_="ProfileTweet-actionCountForPresentation")
+            count = results[0].encode_contents().decode("ascii")
+            count = 0 if count.strip() == "" else int(count)
+            retweet_count += count
+
+            results = soup.find_all(
+                "div", class_="ProfileTweet-action ProfileTweet-action--favorite js-toggleState")
+            subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
+            results = subsoup.find_all(
+                "span", class_="ProfileTweet-actionCountForPresentation")
+            count = results[0].encode_contents().decode("ascii")
+            count = 0 if count.strip() == "" else int(count)
+            favorite_count += count
+
+        print(reply_count, retweet_count, favorite_count)
+        with open("{}/counts.json".format(directory), "w") as f:
+            json.dump({"reply_count": reply_count, "retweet_count": retweet_count,
+                       "favorite_count": favorite_count}, f)
+
+        sleeptime = random.randint(5, 20)
+        print("Sleeping for {} seconds...".format(sleeptime))
+        time.sleep(sleeptime)
+
+        # print(best_tweet["retweet_count"], best_tweet["favorite_count"])
+        # print('@%s tweeted: %s' %
+        # (best_tweet['user']['screen_name'], best_tweet['text']))
 
 # url = "https://twitter.com/mattdpearce/status/1145734605472817153"
 # html = requests.get(url).text
 
 # soup = bs4.BeautifulSoup(html, "html.parser")
-# results = soup.find_all("div", class_="ProfileTweet-action ProfileTweet-action--reply")
-
-# subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
-# results = subsoup.find_all("span", class_="ProfileTweet-actionCountForPresentation")
-# print(results[0].encode_contents().decode("ascii"))
-
-# results = soup.find_all("div", class_="ProfileTweet-action ProfileTweet-action--retweet js-toggleState js-toggleRt")
-
-# subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
-# results = subsoup.find_all("span", class_="ProfileTweet-actionCountForPresentation")
-# print(results[0].encode_contents().decode("ascii"))
-
-# results = soup.find_all("div", class_="ProfileTweet-action ProfileTweet-action--favorite js-toggleState")
-
-# subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
-# results = subsoup.find_all("span", class_="ProfileTweet-actionCountForPresentation")
-# print(results[0].encode_contents().decode("ascii"))

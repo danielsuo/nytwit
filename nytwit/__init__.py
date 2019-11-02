@@ -5,10 +5,11 @@ import time
 import bs4
 import requests
 import random
-import twitter
+# import twitter
 import urllib.parse
+import pandas as pd
 
-from config import Config
+from .config import Config
 
 nyt_base = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
 twitter_base = "https://twitter.com/search?q="
@@ -24,96 +25,84 @@ twitter_base = "https://twitter.com/search?q="
 
 # print(Config().get("TWITTER_ACCESS_TOKEN_SECRET"))
 
-# TODO: handle pagination
-# TODO: handle new queries with more recent dates
-page = 0
-while True:
-    results = requests.get(nyt_base, params={
-        "api-key": Config().get("NYT_API_KEY"), "fq": 'news_desk:("OpEd" "Opinion" "Editorial")', "begin_date": 20190101, "page": page, "sort": "oldest"})
-    results = json.loads(results.text)
+NYTWIT_HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
-    if "response" not in results:
-        break
-    else:
-        page += 1
+links = pd.read_csv(os.path.join(NYTWIT_HOME, "data", "links.csv"))
 
-    for result in results["response"]["docs"]:
-        url = result["web_url"]
+for index, row in links.iterrows():
+    url = row.link
 
-        name = os.path.basename(url).split(".")[0]
-        directory = "data/{}".format(name)
-        os.system("mkdir -p {}".format(directory))
+    name = os.path.basename(url).split(".")[0]
+    directory = "data/{}".format(name)
+    os.system("mkdir -p {}".format(directory))
 
-        print(url)
+    print(url)
 
-        with open("{}/nyt.json".format(directory), "w") as f:
-            json.dump(result, f)
+    max_score = 0
+    best_tweet = None
 
-        max_score = 0
-        best_tweet = None
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Cafari/537.36'
+    }
+    twitter_url = "{}{}".format(twitter_base, url)
+    response = requests.get(twitter_url, headers=headers)
+    twitter_html = response.content
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Cafari/537.36'
-        }
-        twitter_url = "{}{}".format(twitter_base, url)
-        response = requests.get(twitter_url, headers=headers)
-        twitter_html = response.content
+    with open("{}/twitter.html".format(directory), "w") as f:
+        f.write(twitter_html.decode("utf-8"))
 
-        with open("{}/twitter.html".format(directory), "w") as f:
-            f.write(twitter_html.decode("utf-8"))
+    twitter_soup = bs4.BeautifulSoup(twitter_html, "html.parser")
+    tweets = twitter_soup.find(id="stream-items-id")
+    tweets = bs4.BeautifulSoup(str(tweets), "html.parser")
+    tweets = tweets.find_all(
+        "li", class_="js-stream-item stream-item stream-item")
 
-        twitter_soup = bs4.BeautifulSoup(twitter_html, "html.parser")
-        tweets = twitter_soup.find(id="stream-items-id")
-        tweets = bs4.BeautifulSoup(str(tweets), "html.parser")
-        tweets = tweets.find_all(
-            "li", class_="js-stream-item stream-item stream-item")
+    reply_count = 0
+    retweet_count = 0
+    favorite_count = 0
 
-        reply_count = 0
-        retweet_count = 0
-        favorite_count = 0
+    for tweet in tweets:
+        soup = bs4.BeautifulSoup(str(tweet), "html.parser")
 
-        for tweet in tweets:
-            soup = bs4.BeautifulSoup(str(tweet), "html.parser")
+        results = soup.find_all(
+            "div", class_="ProfileTweet-action ProfileTweet-action--reply")
+        subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
+        results = subsoup.find_all(
+            "span", class_="ProfileTweet-actionCountForPresentation")
+        count = results[0].encode_contents().decode("ascii")
+        count = 0 if count.strip() == "" else int(count)
+        reply_count += count
 
-            results = soup.find_all(
-                "div", class_="ProfileTweet-action ProfileTweet-action--reply")
-            subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
-            results = subsoup.find_all(
-                "span", class_="ProfileTweet-actionCountForPresentation")
-            count = results[0].encode_contents().decode("ascii")
-            count = 0 if count.strip() == "" else int(count)
-            reply_count += count
+        results = soup.find_all(
+            "div", class_="ProfileTweet-action ProfileTweet-action--retweet js-toggleState js-toggleRt")
+        subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
+        results = subsoup.find_all(
+            "span", class_="ProfileTweet-actionCountForPresentation")
+        count = results[0].encode_contents().decode("ascii")
+        count = 0 if count.strip() == "" else int(count)
+        retweet_count += count
 
-            results = soup.find_all(
-                "div", class_="ProfileTweet-action ProfileTweet-action--retweet js-toggleState js-toggleRt")
-            subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
-            results = subsoup.find_all(
-                "span", class_="ProfileTweet-actionCountForPresentation")
-            count = results[0].encode_contents().decode("ascii")
-            count = 0 if count.strip() == "" else int(count)
-            retweet_count += count
+        results = soup.find_all(
+            "div", class_="ProfileTweet-action ProfileTweet-action--favorite js-toggleState")
+        subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
+        results = subsoup.find_all(
+            "span", class_="ProfileTweet-actionCountForPresentation")
+        count = results[0].encode_contents().decode("ascii")
+        count = 0 if count.strip() == "" else int(count)
+        favorite_count += count
 
-            results = soup.find_all(
-                "div", class_="ProfileTweet-action ProfileTweet-action--favorite js-toggleState")
-            subsoup = bs4.BeautifulSoup(str(results[0]), "html.parser")
-            results = subsoup.find_all(
-                "span", class_="ProfileTweet-actionCountForPresentation")
-            count = results[0].encode_contents().decode("ascii")
-            count = 0 if count.strip() == "" else int(count)
-            favorite_count += count
+    print(reply_count, retweet_count, favorite_count)
+    with open("{}/counts.json".format(directory), "w") as f:
+        json.dump({"reply_count": reply_count, "retweet_count": retweet_count,
+                   "favorite_count": favorite_count}, f)
 
-        print(reply_count, retweet_count, favorite_count)
-        with open("{}/counts.json".format(directory), "w") as f:
-            json.dump({"reply_count": reply_count, "retweet_count": retweet_count,
-                       "favorite_count": favorite_count}, f)
+    sleeptime = random.randint(5, 20)
+    print("Sleeping for {} seconds...".format(sleeptime))
+    time.sleep(sleeptime)
 
-        sleeptime = random.randint(5, 20)
-        print("Sleeping for {} seconds...".format(sleeptime))
-        time.sleep(sleeptime)
-
-        # print(best_tweet["retweet_count"], best_tweet["favorite_count"])
-        # print('@%s tweeted: %s' %
-        # (best_tweet['user']['screen_name'], best_tweet['text']))
+    # print(best_tweet["retweet_count"], best_tweet["favorite_count"])
+    # print('@%s tweeted: %s' %
+    # (best_tweet['user']['screen_name'], best_tweet['text']))
 
 # url = "https://twitter.com/mattdpearce/status/1145734605472817153"
 # html = requests.get(url).text

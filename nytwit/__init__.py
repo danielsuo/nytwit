@@ -38,9 +38,6 @@ for index, row in links.iterrows():
 
     print(url)
 
-    max_score = 0
-    best_tweet = None
-
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Cafari/537.36'
     }
@@ -100,11 +97,3 @@ for index, row in links.iterrows():
     print("Sleeping for {} seconds...".format(sleeptime))
     time.sleep(sleeptime)
 
-    # print(best_tweet["retweet_count"], best_tweet["favorite_count"])
-    # print('@%s tweeted: %s' %
-    # (best_tweet['user']['screen_name'], best_tweet['text']))
-
-# url = "https://twitter.com/mattdpearce/status/1145734605472817153"
-# html = requests.get(url).text
-
-# soup = bs4.BeautifulSoup(html, "html.parser")
